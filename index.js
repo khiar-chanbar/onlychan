@@ -1,9 +1,28 @@
-const express = require("express");
+// const express = require("express");
 
-const app = express();
+// const app = express();
 
-app.get("/", (req, res) => {
-  const host = req.hostname;
+// app.get("/", (req, res) => {
+//   const host = req.hostname;
+//   const hostNames = host.split(".");
+
+//   const subDomains = hostNames.slice(0, hostNames.length - 1);
+//   const mainDomain = hostNames[hostNames.length - 1];
+
+//   console.log(subDomains);
+//   console.log(mainDomain);
+
+//   res.send(`Hello from ${host}`);
+// });
+
+// app.listen(3000, () => {
+//   console.log("Example app listening on port 3000!");
+// });
+
+const { createServer } = require("http");
+
+const server = createServer((req, res) => {
+  const host = req.headers.host;
   const hostNames = host.split(".");
 
   const subDomains = hostNames.slice(0, hostNames.length - 1);
@@ -12,9 +31,9 @@ app.get("/", (req, res) => {
   console.log(subDomains);
   console.log(mainDomain);
 
-  res.send(`Hello from ${host}`);
+  res.end(`Hello from ${host}`);
 });
 
-app.listen(3000, () => {
+server.listen(3000, () => {
   console.log("Example app listening on port 3000!");
 });
