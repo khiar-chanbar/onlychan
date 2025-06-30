@@ -14,7 +14,7 @@ app.get("/", (req, res) => {
 
   if (subDomains.length > 0) return res.sendStatus(404);
 
-  res.send(`Hello from ${host}`);
+  res.send(`Hello from ${host}, ${JSON.stringify(req)}`);
 });
 
 app.use((req, res) => {
