@@ -1,26 +1,69 @@
 const express = require("express");
-
 const app = express();
+const http = require("http").createServer(app);
+const io = require("socket.io")(http);
 
-app.get("/", (req, res) => {
-  const host = req.hostname;
-  const hostNames = host.split(".");
+app.use(express.static("public"));
 
-  const subDomains = hostNames.slice(0, hostNames.length - 1);
-  const mainDomain = hostNames[hostNames.length - 1];
+const users = {};
+const messages = [];
 
-  console.log(subDomains);
-  console.log(mainDomain);
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
 
-  if (subDomains.length > 0) return res.sendStatus(404);
+  socket.on("set username", (username) => {
+    users[socket.id] = username;
+    socket.username = username;
+    socket.emit("init messages", messages);
+  });
 
-  res.send(`Hello from ${host}, ${JSON.stringify(req)}`);
+  socket.on("chat message", (msgObj) => {
+    if (!socket.username) return;
+
+    const message = {
+      id: Date.now(),
+      user: socket.username,
+      content: msgObj.content,
+      time: new Date().toLocaleTimeString("fa-IR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      timeISO: new Date(),
+      replyTo: msgObj.replyTo || null,
+      status: "sent",
+    };
+    messages.push(message);
+
+    io.emit("chat message", message);
+  });
+
+  socket.on("typing", () => {
+    socket.broadcast.emit("typing", socket.username);
+  });
+
+  socket.on("stop typing", () => {
+    socket.broadcast.emit("stop typing");
+  });
+
+  socket.on("messages read", () => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (
+        messages[i].user === socket.username &&
+        messages[i].status !== "read"
+      ) {
+        messages[i].status = "read";
+        io.emit("message read", messages[i].id);
+        break;
+      }
+    }
+  });
+
+  socket.on("disconnect", () => {
+    delete users[socket.id];
+  });
 });
 
-app.use((req, res) => {
-  res.sendStatus(404);
-});
-
-app.listen(3000, () => {
-  console.log("Example app listening on port 3000!");
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });

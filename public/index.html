@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Galaxy v1</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://cdn.jsdelivr.net/gh/rastikerdar/vazir-font@v30.1.0/dist/font-face.css"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Vazir", Tahoma, sans-serif;
+        background-color: #e5ddd5;
+      }
+      .message:last-child.self::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        right: -10px;
+        width: 0;
+        height: 0;
+        border-top: 10px solid #dcf8c6;
+        border-left: 10px solid transparent;
+      }
+      .message:last-child.other::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: -10px;
+        width: 0;
+        height: 0;
+        border-top: 10px solid white;
+        border-right: 10px solid transparent;
+      }
+      .reply-container {
+        border-left: 3px solid #3b82f6;
+        padding-left: 8px;
+        font-size: 0.8rem;
+        color: #374151;
+        max-width: 90%;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        cursor: default;
+        user-select: none;
+      }
+    </style>
+  </head>
+  <body class="flex flex-col h-screen">
+    <!-- فرم ورود اسم -->
+    <form
+      id="usernameForm"
+      class="m-auto bg-white p-6 rounded-lg shadow-md w-80 flex flex-col"
+    >
+      <input
+        type="text"
+        id="usernameInput"
+        placeholder="اسم خودتو وارد کن"
+        required
+        autocomplete="off"
+        class="border border-gray-300 rounded-md p-3 text-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      />
+      <button
+        type="submit"
+        class="bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-md font-semibold transition"
+      >
+        ورود
+      </button>
+    </form>
+
+    <!-- چت کانتینر -->
+    <div id="chatContainer" class="hidden flex flex-col h-full">
+      <!-- پیام ها -->
+      <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
+
+      <!-- تایپینگ -->
+      <div id="typing" class="text-gray-600 italic px-4 h-6"></div>
+
+      <!-- باکس ریپلای -->
+      <div
+        id="replyBox"
+        class="hidden flex justify-between items-center bg-gray-200 p-2 px-4 text-sm text-gray-700 rounded-t"
+      >
+        <div id="replyText" class="truncate"></div>
+        <button
+          id="cancelReply"
+          class="text-gray-500 hover:text-gray-800 font-bold"
+        >
+          &times;
+        </button>
+      </div>
+
+      <!-- فرم ارسال پیام -->
+      <form id="chatForm" class="flex p-3 bg-gray-100">
+        <textarea
+          id="chatInput"
+          rows="1"
+          placeholder="پیام بده..."
+          autocomplete="off"
+          class="flex-grow resize-none rounded-full border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-blue-400 text-lg"
+        ></textarea>
+        <button
+          id="sendBtn"
+          type="submit"
+          class="bg-blue-600 hover:bg-blue-700 text-white rounded-full w-12 h-12 flex justify-center items-center text-2xl transition"
+        >
+          ➤
+        </button>
+      </form>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+
+    <script>
+      const socket = io();
+
+      const usernameForm = document.getElementById("usernameForm");
+      const usernameInput = document.getElementById("usernameInput");
+      const chatContainer = document.getElementById("chatContainer");
+      const messages = document.getElementById("messages");
+      const chatForm = document.getElementById("chatForm");
+      const chatInput = document.getElementById("chatInput");
+      const typingDiv = document.getElementById("typing");
+      const replyBox = document.getElementById("replyBox");
+      const replyText = document.getElementById("replyText");
+      const cancelReply = document.getElementById("cancelReply");
+
+      let username = "";
+      let replyTo = null;
+      let allMessages = [];
+      let windowFocused = true;
+      let unreadCount = 0;
+      const originalTitle = document.title;
+
+      usernameForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const val = usernameInput.value.trim();
+        if (!val) {
+          alert("لطفا اسم وارد کن");
+          return;
+        }
+        username = val;
+        socket.emit("set username", username);
+        usernameForm.classList.add("hidden");
+        chatContainer.classList.remove("hidden");
+        chatInput.focus();
+      });
+
+      chatForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const msg = chatInput.value.trim();
+        if (!msg) return;
+        const messageObj = { content: msg, replyTo };
+        socket.emit("chat message", messageObj);
+        // حذف کردن addMessage اینجا
+        replyTo = null;
+        replyBox.classList.add("hidden");
+        chatInput.value = "";
+        chatInput.focus();
+      });
+
+      messages.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const msgDiv = e.target.closest(".message");
+        if (!msgDiv) return;
+        const msgId = msgDiv.dataset.id;
+        const msg = allMessages.find((m) => m.id == msgId);
+        if (!msg) return;
+        startReply(msg);
+      });
+
+      messages.addEventListener("touchstart", (e) => {
+        if (e.touches.length === 1) {
+          const msgDiv = e.target.closest(".message");
+          if (!msgDiv) return;
+          const msgId = msgDiv.dataset.id;
+          const msg = allMessages.find((m) => m.id == msgId);
+          if (!msg) return;
+
+          let touchTimer = setTimeout(() => {
+            startReply(msg);
+          }, 1000);
+
+          msgDiv.addEventListener("touchend", () => clearTimeout(touchTimer), {
+            once: true,
+          });
+          msgDiv.addEventListener("touchmove", () => clearTimeout(touchTimer), {
+            once: true,
+          });
+        }
+      });
+
+      cancelReply.addEventListener("click", (e) => {
+        e.preventDefault();
+        replyTo = null;
+        replyBox.classList.add("hidden");
+        chatInput.focus();
+      });
+
+      function startReply(msg) {
+        replyTo = msg;
+        replyText.textContent = `پاسخ به: ${
+          msg.content.length > 50
+            ? msg.content.slice(0, 50) + "..."
+            : msg.content
+        }`;
+        replyBox.classList.remove("hidden");
+        chatInput.focus();
+      }
+
+      socket.on("chat message", (msg) => {
+        msg.self = msg.user === username;
+        msg.status = "sent";
+        allMessages.push(msg);
+        renderMessages();
+        notifyUser(msg);
+      });
+
+      let typingTimeout;
+      chatInput.addEventListener("input", () => {
+        socket.emit("typing");
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+          socket.emit("stop typing");
+        }, 1000);
+      });
+
+      socket.on("typing", (user) => {
+        typingDiv.textContent = user + " داره تایپ میکنه...";
+      });
+      socket.on("stop typing", () => {
+        typingDiv.textContent = "";
+      });
+
+      function renderMessages() {
+        let html = "";
+        for (let i = 0; i < allMessages.length; i++) {
+          const m = allMessages[i];
+          const prev = allMessages[i - 1];
+          const next = allMessages[i + 1];
+          const isSelf = m.user === username;
+
+          const timeDiffPrev = prev
+            ? new Date(m.timeISO) - new Date(prev.timeISO)
+            : 999999999;
+          const timeDiffNext = next
+            ? new Date(next.timeISO) - new Date(m.timeISO)
+            : 999999999;
+
+          const groupStart =
+            !prev || prev.user !== m.user || timeDiffPrev > 600000;
+          const lastInGroup =
+            !next || next.user !== m.user || timeDiffNext > 600000;
+
+          if (groupStart) {
+            if (i !== 0) html += "</div>";
+            html += `<div class="message-group flex flex-col space-y-1 ${
+              isSelf ? "items-end" : "items-start"
+            } mb-3">`;
+          }
+
+          html += `<div
+          class="message relative max-w-[70%] break-words p-3 rounded-lg shadow ${
+            isSelf
+              ? "bg-green-100 text-gray-900 rounded-br-none self"
+              : "bg-white text-gray-800 rounded-bl-none other"
+          }"
+          data-id="${m.id}"
+          title="${m.user} - ${m.time}"
+          >`;
+
+          if (m.replyTo) {
+            const r = allMessages.find((msg) => msg.id === m.replyTo.id);
+            if (r) {
+              html += `<div class="reply-container mb-1">${r.content}</div>`;
+            }
+          }
+
+          html += `${m.content}`;
+
+          if (isSelf) {
+            html += `<span class="absolute bottom-1 right-2 text-xs select-none">`;
+            if (m.status === "sending") html += "🕓";
+            else if (m.status === "sent") html += "✔";
+            else if (m.status === "read") html += "✔✔";
+            html += `</span>`;
+          }
+
+          html += `<div class="text-xs text-gray-500 mt-1 text-left">${m.time}</div>`;
+          html += `</div>`;
+
+          if (lastInGroup && i === allMessages.length - 1) {
+            html += "</div>";
+          }
+        }
+        html += "</div>";
+        messages.innerHTML = html;
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      function addMessage(msg) {
+        allMessages.push(msg);
+        renderMessages();
+      }
+
+      function notifyUser(msg) {
+        if (document.hidden || !windowFocused) {
+          unreadCount++;
+          document.title = `(${unreadCount}) پیام جدید!`;
+          if (Notification.permission === "granted") {
+            new Notification(`${msg.user}`, { body: msg.content });
+          }
+        }
+      }
+
+      window.addEventListener("focus", () => {
+        windowFocused = true;
+        unreadCount = 0;
+        document.title = originalTitle;
+        socket.emit("messages read");
+      });
+      window.addEventListener("blur", () => {
+        windowFocused = false;
+      });
+
+      if (
+        Notification.permission !== "granted" &&
+        Notification.permission !== "denied"
+      ) {
+        Notification.requestPermission();
+      }
+
+      socket.on("message read", (msgId) => {
+        const msg = allMessages.find((m) => m.id == msgId);
+        if (msg) {
+          msg.status = "read";
+          renderMessages();
+        }
+      });
+
+      socket.on("init messages", (msgs) => {
+        allMessages = msgs.map((m) => ({
+          ...m,
+          timeISO: new Date().toISOString(),
+        }));
+        renderMessages();
+      });
+    </script>
+  </body>
+</html>
